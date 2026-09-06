@@ -1,0 +1,90 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import random
+
+# ---------- STEP 1: Generate sample billing data ----------
+# (In real use, this would be your actual AWS/Azure billing export CSV)
+
+def generate_sample_billing(days=60):
+    services = ["EC2", "S3", "RDS", "Lambda", "CloudFront"]
+    base_costs = {"EC2": 40, "S3": 8, "RDS": 25, "Lambda": 3, "CloudFront": 6}
+
+    records = []
+    start_date = datetime(2026, 7, 1)
+
+    for day in range(days):
+        date = start_date + timedelta(days=day)
+        for service in services:
+            # normal daily cost with small natural variation
+            noise = random.uniform(-0.15, 0.15)
+            cost = round(base_costs[service] * (1 + noise), 2)
+            records.append([date, service, cost])
+
+    df = pd.DataFrame(records, columns=["date", "service", "cost"])
+
+    # inject a few deliberate spikes (simulating a compromised account / runaway job)
+    spike_days = [
+        (datetime(2026, 7, 20), "EC2", 340.00),   # crypto-mining-style spike
+        (datetime(2026, 8, 5), "Lambda", 85.00),  # runaway function loop
+        (datetime(2026, 8, 22), "S3", 60.00),     # unexpected data transfer spike
+    ]
+    for date, service, cost in spike_days:
+        df.loc[(df["date"] == date) & (df["service"] == service), "cost"] = cost
+
+    return df
+
+
+# ---------- STEP 2: Calculate what "normal" looks like per service ----------
+
+def calculate_baselines(df, window=7):
+    df = df.sort_values(["service", "date"])
+    df["rolling_avg"] = (
+        df.groupby("service")["cost"]
+        .transform(lambda x: x.rolling(window=window, min_periods=3).mean())
+    )
+    df["rolling_std"] = (
+        df.groupby("service")["cost"]
+        .transform(lambda x: x.rolling(window=window, min_periods=3).std())
+    )
+    return df
+
+
+# ---------- STEP 3: Flag anomalies ----------
+# A day is anomalous if cost is well beyond the recent rolling average
+# (using a simple z-score style threshold)
+
+def flag_anomalies(df, threshold=2.5):
+    df["z_score"] = (df["cost"] - df["rolling_avg"]) / df["rolling_std"]
+    df["is_anomaly"] = df["z_score"] > threshold
+    return df
+
+
+# ---------- STEP 4: Generate plain-English explanations ----------
+
+def explain_anomaly(row):
+    pct_increase = ((row["cost"] - row["rolling_avg"]) / row["rolling_avg"]) * 100
+    explanation = f"{row['service']} cost was {pct_increase:.0f}% above its recent average"
+
+    if row["service"] in ["EC2", "Lambda"]:
+        explanation += " — sudden compute spikes like this can indicate a compromised account running unauthorized workloads (e.g. crypto mining)"
+    elif row["service"] == "S3":
+        explanation += " — unexpected spikes can indicate unauthorized data transfer or a misconfigured public bucket being scraped"
+
+    return explanation
+
+
+def print_report(df):
+    anomalies = df[df["is_anomaly"] == True].dropna(subset=["rolling_avg"])
+    print(f"\n💰 Scanned {df['date'].nunique()} days of billing data — found {len(anomalies)} anomalies:\n")
+
+    for _, row in anomalies.iterrows():
+        print(f"[FLAGGED] {row['date'].date()} | {row['service']} | ${row['cost']:.2f} (avg: ${row['rolling_avg']:.2f})")
+        print(f"  {explain_anomaly(row)}\n")
+
+
+if __name__ == "__main__":
+    df = generate_sample_billing()
+    df = calculate_baselines(df)
+    df = flag_anomalies(df)
+    print_report(df)
