@@ -51,3 +51,13 @@ Python, `pandas`, `numpy`
 
 Part of my ongoing work toward Cloud AI Architecture — thinking about cloud systems from both a technical and operational lens.
 
+
+MIT License with Commercial Clause
+
+Copyright (c) 2026 Boledi Sehlapelo  - Alexandra, South Africa
+
+Permission is granted for personal use.
+Commercial use (charging clients to run this, or reselling as part of a service) requires permission from author.
+
+Contact: boledicloud@gmail.com
+
